@@ -6,7 +6,7 @@ import textwrap
 from io import BytesIO
 from collections import Counter
 
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import tempfile
@@ -32,13 +32,14 @@ import tensorflow as tf
 from tensorflow.keras import layers
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from sklearn.preprocessing import LabelEncoder
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, confusion_matrix
 
 # ============================================================
 # CONFIG
 # ============================================================
-DATASET_DIR = r"C:\Users\tphuy\OneDrive\Documents\dataset"
+DATASET_DIR = os.environ.get(
+    "DATASET_DIR",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data"),
+)
 
 CASE_COL = "user_session"
 ACTIVITY_COL = "event_type"
@@ -55,20 +56,8 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXTENSIONS = {"csv"}
 MAX_UPLOAD_BYTES = 6 * 1024 * 1024 * 1024  # 6GB headroom; update the "Max 10 MB" hint text in the HTML too
 
-# Where the transformer evaluation report (.xlsx) is written after each /api/run.
-# Overwritten on every run so it always reflects the most recently uploaded event log.
-EVAL_DIR = os.path.join(tempfile.gettempdir(), "process_mining_eval")
-os.makedirs(EVAL_DIR, exist_ok=True)
-EVAL_EXCEL_FILENAME = "transformer_evaluation.xlsx"
-EVAL_EXCEL_PATH = os.path.join(EVAL_DIR, EVAL_EXCEL_FILENAME)
-
-# Fraction of sampled sessions held out (by session, not by row) to evaluate the
-# next-activity transformer. Kept small since training data is already capped.
-TEST_SESSION_FRACTION = 0.15
-
 # Reproducibility: single seed used everywhere sampling/shuffling happens
-# (session sampling, betweenness centrality approximation, TF shuffling/init,
-# and the train/test session split used for model evaluation).
+# (session sampling, betweenness centrality approximation, TF shuffling/init).
 RANDOM_SEED = 42
 
 # Only needed columns are read from the CSV — change this if your schema differs
@@ -77,11 +66,9 @@ NEEDED_COLUMNS = [
     "category_id", "brand", "price", "user_id", "user_session"
 ]
 
-# API key must come from environment, never hardcoded
-GEMINI_API_KEY = ""
+# The API key is read from the environment and never committed.
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
-# GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-# client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 
 def sanitize_for_json(obj):
@@ -256,99 +243,6 @@ def build_model(vocab_size, max_len):
     return model
 
 
-def split_sessions_train_test(sampled: pl.DataFrame, test_fraction: float, seed: int):
-    """
-    Splits a sampled DataFrame into train/test by whole session (never by row),
-    so no session leaks partially across both sets. Sessions with < 2 events
-    are dropped from the split up front since sequence_generator() would skip
-    them anyway (no (X, y) pair can be built from a single event).
-    """
-    session_counts = sampled.group_by(CASE_COL).len()
-    eligible_sessions = session_counts.filter(pl.col("len") >= 2)[CASE_COL].to_list()
-
-    if len(eligible_sessions) < 2:
-        # Not enough data to hold out a test set — evaluate on everything.
-        return sampled, sampled.head(0)
-
-    train_ids, test_ids = train_test_split(
-        eligible_sessions, test_size=test_fraction, random_state=seed
-    )
-    train_df = sampled.filter(pl.col(CASE_COL).is_in(train_ids))
-    test_df = sampled.filter(pl.col(CASE_COL).is_in(test_ids))
-    return train_df, test_df
-
-
-def evaluate_transformer(model, test_df: pl.DataFrame, le: LabelEncoder, max_len: int):
-    """
-    Runs the trained model over the held-out test sessions and returns the
-    true/predicted next-activity labels (both in the +1-shifted encoding
-    space used at training time, so label 0 = padding is never a valid value).
-    """
-    if len(test_df) == 0:
-        return np.array([], dtype=np.int32), np.array([], dtype=np.int32)
-
-    X, y_true = [], []
-    for x_pad, y in sequence_generator(test_df, le, max_len):
-        X.append(x_pad)
-        y_true.append(y)
-
-    if not X:
-        return np.array([], dtype=np.int32), np.array([], dtype=np.int32)
-
-    X = np.stack(X)
-    y_true = np.array(y_true, dtype=np.int32)
-
-    preds = model.predict(X, batch_size=TRAINING_BATCH_SIZE, verbose=0)
-    preds = np.nan_to_num(preds, nan=0.0, posinf=0.0, neginf=0.0)
-    preds[:, 0] = 0.0  # index 0 = padding, never a valid "next activity"
-    y_pred = np.argmax(preds, axis=1).astype(np.int32)
-
-    return y_true, y_pred
-
-
-def export_evaluation_to_excel(
-    out_path: str,
-    summary: dict,
-    y_true: np.ndarray,
-    y_pred: np.ndarray,
-    class_names: list,
-):
-    """
-    Writes a 3-sheet evaluation workbook:
-      - Summary: overall loss/accuracy/dataset sizes
-      - Classification Report: per-activity precision/recall/f1/support
-      - Confusion Matrix: true (rows) vs predicted (cols) next-activity counts
-    Safe to call with an empty y_true/y_pred (e.g. too little data to hold
-    out a test set) — still writes Summary, with the other two sheets empty.
-    """
-    summary_df = pd.DataFrame(list(summary.items()), columns=["Metric", "Value"])
-
-    # Labels are the +1-shifted class indices (1..len(class_names)); class_names[i]
-    # corresponds to label i+1, matching the encoding used in sequence_generator().
-    labels = list(range(1, len(class_names) + 1))
-
-    if len(y_true) > 0:
-        report_dict = classification_report(
-            y_true, y_pred,
-            labels=labels, target_names=class_names,
-            output_dict=True, zero_division=0,
-        )
-        report_df = pd.DataFrame(report_dict).transpose().reset_index()
-        report_df = report_df.rename(columns={"index": "activity"})
-
-        cm = confusion_matrix(y_true, y_pred, labels=labels)
-        cm_df = pd.DataFrame(cm, index=class_names, columns=class_names)
-        cm_df.index.name = "true \\ predicted"
-    else:
-        report_df = pd.DataFrame(columns=["activity", "precision", "recall", "f1-score", "support"])
-        cm_df = pd.DataFrame()
-
-    with pd.ExcelWriter(out_path, engine="openpyxl") as writer:
-        summary_df.to_excel(writer, sheet_name="Summary", index=False)
-        report_df.to_excel(writer, sheet_name="Classification Report", index=False)
-        cm_df.to_excel(writer, sheet_name="Confusion Matrix")
-
-
 def train_transformer_streaming(lf: pl.LazyFrame, le: LabelEncoder, max_len: int = 20):
     # Seed Python/NumPy/TensorFlow RNGs so weight initialization, dataset
     # shuffling, and any other randomness in this training run are
@@ -358,18 +252,13 @@ def train_transformer_streaming(lf: pl.LazyFrame, le: LabelEncoder, max_len: int
     sampled = sample_sessions(lf, MAX_SESSIONS_FOR_TRAINING)
     vocab_size = len(le.classes_) + 1  # +1 for the reserved padding index (0)
 
-    # Hold out a slice of sessions purely for evaluation, never seen in training.
-    train_sessions, test_sessions = split_sessions_train_test(
-        sampled, TEST_SESSION_FRACTION, RANDOM_SEED
-    )
-
     output_signature = (
         tf.TensorSpec(shape=(max_len,), dtype=tf.int32),
         tf.TensorSpec(shape=(), dtype=tf.int32),
     )
 
     ds = tf.data.Dataset.from_generator(
-        lambda: sequence_generator(train_sessions, le, max_len),
+        lambda: sequence_generator(sampled, le, max_len),
         output_signature=output_signature,
     ).shuffle(2048, seed=RANDOM_SEED).batch(TRAINING_BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
 
@@ -378,50 +267,9 @@ def train_transformer_streaming(lf: pl.LazyFrame, le: LabelEncoder, max_len: int
     model.fit(ds, epochs=TRAINING_EPOCHS, verbose=0)
     print("Training done")
 
-    # ---- Evaluation on the held-out sessions, exported to its own Excel file ----
-    eval_report_path = None
-    try:
-        test_ds = tf.data.Dataset.from_generator(
-            lambda: sequence_generator(test_sessions, le, max_len),
-            output_signature=output_signature,
-        ).batch(TRAINING_BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
-
-        n_test_samples = sum(1 for _ in sequence_generator(test_sessions, le, max_len))
-
-        if n_test_samples > 0:
-            test_loss, test_accuracy = model.evaluate(test_ds, verbose=0)
-        else:
-            test_loss, test_accuracy = None, None
-
-        y_true, y_pred = evaluate_transformer(model, test_sessions, le, max_len)
-
-        summary = {
-            "vocab_size (incl. padding)": vocab_size,
-            "train_sessions": int(len(train_sessions[CASE_COL].unique())) if len(train_sessions) else 0,
-            "test_sessions": int(len(test_sessions[CASE_COL].unique())) if len(test_sessions) else 0,
-            "test_samples (next-activity predictions)": int(n_test_samples),
-            "test_loss": float(test_loss) if test_loss is not None else "N/A",
-            "test_accuracy": float(test_accuracy) if test_accuracy is not None else "N/A",
-            "epochs": TRAINING_EPOCHS,
-            "batch_size": TRAINING_BATCH_SIZE,
-            "max_sequence_len": max_len,
-            "random_seed": RANDOM_SEED,
-        }
-
-        export_evaluation_to_excel(
-            EVAL_EXCEL_PATH, summary, y_true, y_pred, list(le.classes_)
-        )
-        eval_report_path = EVAL_EXCEL_PATH
-        print(f"Saved transformer evaluation report to {EVAL_EXCEL_PATH}")
-    except Exception:
-        import traceback
-        traceback.print_exc()
-        # Evaluation failing should never take down the whole /api/run pipeline —
-        # the trained model and the rest of the dashboard are still usable.
-
-    del sampled, train_sessions, test_sessions
+    del sampled
     gc.collect()
-    return model, max_len, eval_report_path
+    return model, max_len
 
 
 # ============================================================
@@ -860,7 +708,7 @@ def process_pipeline(path: str):
     pm4py_result = build_pm4py_models(sample_df)
     ecommerce_result = build_ecommerce_dashboard(sample_df)
 
-    model, max_len, eval_report_path = train_transformer_streaming(lf, le)
+    model, max_len = train_transformer_streaming(lf, le)
 
     result = {
         "sample_size_used": int(len(sample_df)),
@@ -870,13 +718,6 @@ def process_pipeline(path: str):
         "top_paths": graph_result["top_paths"],
         "images": {**graph_result["images"], **pm4py_result},
         "ecommerce": ecommerce_result,
-        # Path/URL info for the transformer evaluation workbook generated during
-        # training. download_url is served by GET /api/evaluation/download.
-        "model_evaluation": {
-            "available": eval_report_path is not None,
-            "filename": EVAL_EXCEL_FILENAME,
-            "download_url": "/api/evaluation/download" if eval_report_path else None,
-        },
     }
 
     llm_context = {
@@ -969,7 +810,7 @@ def api_run():
 def process_by_filename():
     global model, le, MAX_LEN
     try:
-        filename = request.json["filename"]
+        filename = os.path.basename(request.json["filename"])  # block path traversal
         path = os.path.join(DATASET_DIR, filename)
 
         if not os.path.exists(path):
@@ -1071,24 +912,6 @@ def api_predict():
         import traceback
         traceback.print_exc()
         return jsonify({"suggestions": [], "error": traceback.format_exc()}), 200
-
-
-@app.route("/api/evaluation/download", methods=["GET"])
-def api_evaluation_download():
-    """
-    Serves the transformer_evaluation.xlsx produced by the most recent
-    /api/run (or /process) call. 404 until a run has trained a model and
-    successfully written the report.
-    """
-    if not os.path.exists(EVAL_EXCEL_PATH):
-        return jsonify({"error": "No evaluation report available yet - run /api/run first"}), 404
-
-    return send_file(
-        EVAL_EXCEL_PATH,
-        as_attachment=True,
-        download_name=EVAL_EXCEL_FILENAME,
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
 
 
 if __name__ == "__main__":

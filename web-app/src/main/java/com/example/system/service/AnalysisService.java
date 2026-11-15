@@ -1,6 +1,8 @@
 package com.example.system.service;
 
-import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -12,9 +14,13 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.beans.factory.annotation.Value;
 
 @Service
-public class ColabService {
+public class AnalysisService {
     @Value("${python.api.base-url}")
     private String baseUrl;
+
+    /** Folder shared with the Python service (must match its DATASET_DIR). */
+    @Value("${dataset.dir:../data}")
+    private String datasetDir;
 
     public String getLLMInsight() throws Exception {
 
@@ -33,7 +39,7 @@ public class ColabService {
         return response.getBody();
     }
 
-    public String chatWithColab(String message) throws Exception {
+    public String chat(String message) throws Exception {
 
         String url = baseUrl + "/api/chat";
 
@@ -79,17 +85,15 @@ public class ColabService {
         MultipartFile file
     ) throws Exception {
 
-        String folder = "C:\\Users\\tphuy\\OneDrive\\Documents\\dataset\\";
+        // Keep only the bare file name so an upload cannot escape the dataset folder.
+        String filename = Paths.get(file.getOriginalFilename()).getFileName().toString();
 
-        File dest = new File(
-                folder +
-                file.getOriginalFilename()
-        );
-
-        file.transferTo(dest);
+        Path folder = Paths.get(datasetDir).toAbsolutePath().normalize();
+        Files.createDirectories(folder);
+        file.transferTo(folder.resolve(filename));
 
         String url =
-                "http://localhost:5000/process";
+                baseUrl + "/process";
 
         HttpHeaders headers =
                 new HttpHeaders();
@@ -101,10 +105,7 @@ public class ColabService {
         Map<String, String> body =
                 new HashMap<>();
 
-        body.put(
-                "filename",
-                file.getOriginalFilename()
-        );
+        body.put("filename", filename);
 
         HttpEntity<Map<String, String>>
                 request =

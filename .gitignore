@@ -1,0 +1,28 @@
+# Secrets
+.env
+*.env
+!*.env.example
+
+# Java / Maven
+web-app/target/
+web-app/.mvn/wrapper/maven-wrapper.jar
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Large local datasets (the small sample in data/ is tracked)
+data/*
+!data/dataset.csv
+
+# Logs
+*.log
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.iml
+

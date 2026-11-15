@@ -1,0 +1,28 @@
+# Python dependencies for the analytics service.
+# Install with:  pip install -r requirements.txt
+#
+# Notes:
+# - pm4py needs Graphviz installed at the OS level (not just via pip) to render
+#   Petri nets / BPMN: https://graphviz.org/download/ (add it to PATH).
+# - No GPU, or tensorflow fails to install? Replace "tensorflow" with "tensorflow-cpu".
+
+flask==3.0.3
+flask-cors==4.0.1
+werkzeug==3.0.3
+
+polars==1.9.0
+pandas==2.2.2
+numpy==1.26.4
+
+networkx==3.3
+pydot==3.0.1
+
+matplotlib==3.9.0
+seaborn==0.13.2
+
+pm4py==2.7.11
+
+scikit-learn==1.5.1
+tensorflow==2.16.1
+
+google-genai==0.3.0
