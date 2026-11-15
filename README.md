@@ -34,11 +34,31 @@ Large files are handled with lazy/streaming loading (Polars) and session-level s
 
 ## 📸 Screenshots
 
-| Upload event log |
-|---|
-| ![Upload page](docs/images/upload-page.png) |
+Results below come from the sample log in [`data/dataset.csv`](data/dataset.csv) (45 events, 14 sessions), so the numbers are small and illustrative. Large logs work the same way.
 
-The upload screen is the entry point. After **Run Analysis** the app renders the process maps, KPI dashboard, prediction panel and chatbot described above.
+### 1. Upload an event log
+
+![Upload page](docs/images/upload-page.png)
+
+### 2. KPI dashboard, process graph and next-activity prediction
+
+Overview and customer-journey KPIs (purchase rate, abandonment, window shoppers, returning/loyal rate). Click a node in the process graph to build a path; the Transformer returns the probability of each next activity (here `view → cart`).
+
+![Dashboard](docs/images/dashboard.png)
+
+### 3. Process discovery
+
+Graph centrality, frequent paths, Petri net and BPMN diagram discovered with pm4py, plus automatically derived important steps, bottlenecks and top paths.
+
+![Process models](docs/images/process-models.png)
+
+### 4. E-commerce analytics
+
+Session and purchase distribution by price and hour, and sessions vs purchases per brand.
+
+![Analytics](docs/images/analytics.png)
+
+The Gemini-powered insight and chat panels need your own `GEMINI_API_KEY` (see [Configuration](#-configuration)) and are not shown here.
 
 ## 🛠 Tech Stack
 

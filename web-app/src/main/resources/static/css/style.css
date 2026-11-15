@@ -1000,10 +1000,11 @@ body {
 }
 .metric-grid--4 { grid-template-columns: repeat(4, 1fr); }
 .metric-grid--6 { grid-template-columns: repeat(6, 1fr); }
+.metric-grid--8 { grid-template-columns: repeat(4, 1fr); }
 
 @media (max-width: 1024px) { .metric-grid--6 { grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 768px)  { .metric-grid--4, .metric-grid--6 { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 480px)  { .metric-grid--4, .metric-grid--6 { grid-template-columns: 1fr; } }
+@media (max-width: 768px)  { .metric-grid--4, .metric-grid--6, .metric-grid--8 { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 480px)  { .metric-grid--4, .metric-grid--6, .metric-grid--8 { grid-template-columns: 1fr; } }
 
 .metric-card {
   background: var(--bg-surface);

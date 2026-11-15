@@ -13,6 +13,7 @@ werkzeug==3.0.3
 polars==1.9.0
 pandas==2.2.2
 numpy==1.26.4
+pyarrow==17.0.0   # needed by polars .to_pandas(); 17.x is the last line that supports NumPy 1.x
 
 networkx==3.3
 pydot==3.0.1
