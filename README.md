@@ -1,28 +1,46 @@
 # E-Business Process Mining System
 
-A web platform that turns raw e-commerce clickstream logs into process insights: discovered process models, graph metrics, a sales dashboard, next-step prediction and an LLM assistant that explains the results.
+> Turn raw e-commerce clickstream logs into process models, KPIs, next-step predictions and AI-generated insights.
 
-## Overview
+![Java](https://img.shields.io/badge/Java-17-orange) ![Spring Boot](https://img.shields.io/badge/Spring_Boot-6DB33F?logo=springboot&logoColor=white) ![Python](https://img.shields.io/badge/Python-3.10%2F3.11-3776AB?logo=python&logoColor=white) ![TensorFlow](https://img.shields.io/badge/TensorFlow-FF6F00?logo=tensorflow&logoColor=white) ![Gemini](https://img.shields.io/badge/Google-Gemini-4285F4)
+
+| | |
+|---|---|
+| **Type** | Full-stack data & AI web application |
+| **Domain** | E-commerce analytics, process mining |
+| **Highlights** | Process discovery (Petri net / BPMN), Transformer next-action prediction, LLM chatbot, multi-GB CSV support |
+
+**Contents:** [Overview](#-overview) · [Key Features](#-key-features) · [Screenshots](#-screenshots) · [Tech Stack](#-tech-stack) · [Architecture](#-architecture) · [Project Structure](#-project-structure) · [Getting Started](#-getting-started) · [Configuration](#-configuration) · [Notes & Roadmap](#-notes--roadmap)
+
+## 📖 Overview
 
 Upload an event log (`view` → `cart` → `purchase`, grouped by user session) and the system:
 
 1. discovers the shopping process with **process mining** algorithms,
 2. analyses the session graph and e-commerce KPIs,
 3. trains a **Transformer** model to predict a customer's next action,
-4. lets you ask questions about the findings through a **Gemini**-powered chatbot.
+4. answers questions about the findings through a **Gemini**-powered chatbot.
 
-Large files are handled with lazy/streaming loading (Polars) and session-level sampling, so multi-GB CSVs can be processed on a normal machine.
+Large files are handled with lazy/streaming loading (Polars) and session-level sampling, so multi-GB CSVs run on a normal machine.
 
-## Key features
+## ✨ Key Features
 
-- **Process discovery**: Alpha Miner and Inductive Miner, rendered as Petri nets and BPMN diagrams (pm4py + Graphviz).
-- **Graph mining**: transition graph of user sessions with centrality metrics (NetworkX).
-- **E-commerce dashboard**: funnel, conversion, category/brand and price charts (Matplotlib, Seaborn).
-- **Next-activity prediction**: Transformer trained on session sequences (TensorFlow/Keras), exposed through `/api/predict`.
-- **LLM insights and chat**: Gemini summarises findings and answers follow-up questions (optional, needs an API key).
-- **Large-file friendly**: up to 6 GB uploads, with configurable caps on rows/sessions used for mining and training.
+- **Process discovery**: Alpha Miner and Inductive Miner, rendered as Petri nets and BPMN diagrams (pm4py + Graphviz)
+- **Graph mining**: session transition graph with centrality metrics (NetworkX)
+- **E-commerce dashboard**: funnel, conversion, category, brand and price charts (Matplotlib, Seaborn)
+- **Next-activity prediction**: Transformer trained on session sequences (TensorFlow/Keras), served at `/api/predict`
+- **LLM insights and chat**: Gemini summarises results and answers follow-ups (optional, needs an API key)
+- **Large-file friendly**: uploads up to 6 GB, with configurable caps on rows and sessions
 
-## Tech stack
+## 📸 Screenshots
+
+| Upload event log |
+|---|
+| ![Upload page](docs/images/upload-page.png) |
+
+The upload screen is the entry point. After **Run Analysis** the app renders the process maps, KPI dashboard, prediction panel and chatbot described above.
+
+## 🛠 Tech Stack
 
 | Layer | Technology |
 |---|---|
@@ -32,7 +50,7 @@ Large files are handled with lazy/streaming loading (Polars) and session-level s
 | Machine learning | TensorFlow / Keras, scikit-learn |
 | LLM | Google Gemini (`google-genai`) |
 
-## Architecture
+## 🏗 Architecture
 
 ```
 Browser ──▶ web-app (Spring Boot :8080) ──▶ analytics-service (Flask :5000)
@@ -42,40 +60,43 @@ Browser ──▶ web-app (Spring Boot :8080) ──▶ analytics-service (Flask
 
 The Spring Boot app serves the UI and forwards requests to the Flask service. Uploaded CSV files are written to `data/`, which both services share.
 
+## 📁 Project Structure
+
 ```
 e-business-system/
 ├── analytics-service/
 │   ├── app.py                    # Flask API: mining, dashboard, prediction, LLM
-│   ├── app_with_evaluation.py    # Same API + /api/evaluation/download (model evaluation export)
+│   ├── app_with_evaluation.py    # Same API + /api/evaluation/download
 │   └── requirements.txt
-├── web-app/                      # Spring Boot application (Maven wrapper included)
+├── web-app/                      # Spring Boot app (Maven wrapper included)
 │   └── src/main/{java,resources}
-└── data/
-    └── dataset.csv               # small sample event log
+├── data/
+│   └── dataset.csv               # small sample event log
+└── docs/images/                  # README screenshots
 ```
 
-## Getting started
+## 🚀 Getting Started
 
 ### Prerequisites
 
 - Java 17+
 - Python 3.10 or 3.11
-- [Graphviz](https://graphviz.org/download/) installed on the OS and available on `PATH`
-- About 8 GB of free RAM for large CSV files
+- [Graphviz](https://graphviz.org/download/) installed on the OS and on `PATH`
+- About 8 GB free RAM for large CSV files
 
-### 1. Start the analytics service
+### Installation and run
+
+**1. Analytics service**
 
 ```bash
 cd analytics-service
 python -m venv venv
 source venv/bin/activate          # Windows: venv\Scripts\activate
 pip install -r requirements.txt   # no GPU? replace tensorflow with tensorflow-cpu
-python app.py
+python app.py                     # http://localhost:5000 → "API is running!"
 ```
 
-Open <http://localhost:5000>: you should see `API is running!`.
-
-### 2. Start the web app
+**2. Web app**
 
 ```bash
 cd web-app
@@ -84,32 +105,24 @@ cd web-app
 
 Open <http://localhost:8080>, upload a CSV (try `data/dataset.csv`) and wait for the dashboard.
 
-### Configuration
+**Input format:** CSV with at least `event_time, event_type, product_id, category_code, category_id, brand, price, user_id, user_session`.
+
+## ⚙️ Configuration
 
 | Setting | Where | Default | Purpose |
 |---|---|---|---|
-| `GEMINI_API_KEY` | env var (Python) | unset | Enables LLM insights and chat. Without it the rest of the app works. |
-| `DATASET_DIR` | env var (Python) | `../data` | Folder that holds uploaded event logs |
-| `python.api.base-url` | `web-app/src/main/resources/application.properties` | `http://localhost:5000` | Address of the analytics service |
-| `dataset.dir` | `application.properties` | `../data` | Must point to the same folder as `DATASET_DIR` |
-| `MAX_ROWS_FOR_PROCESS_MINING`, `MAX_SESSIONS_FOR_TRAINING` | top of `app.py` | 1.1M / 200k | Lower them for weaker machines |
+| `GEMINI_API_KEY` | env var (Python) | unset | Enables LLM insights and chat; the rest works without it |
+| `DATASET_DIR` | env var (Python) | `../data` | Folder with uploaded event logs |
+| `python.api.base-url` | `application.properties` | `http://localhost:5000` | Address of the analytics service |
+| `dataset.dir` | `application.properties` | `../data` | Must match `DATASET_DIR` |
+| `MAX_ROWS_FOR_PROCESS_MINING`, `MAX_SESSIONS_FOR_TRAINING` | top of `app.py` | 1.1M / 200k | Lower for weaker machines |
 
 ```bash
-export GEMINI_API_KEY="your-key"        # PowerShell: $env:GEMINI_API_KEY="your-key"
+export GEMINI_API_KEY="your-key"   # PowerShell: $env:GEMINI_API_KEY="your-key"
 ```
 
-### Input format
+## 📝 Notes & Roadmap
 
-CSV with at least these columns: `event_time, event_type, product_id, category_code, category_id, brand, price, user_id, user_session`.
-
-## Troubleshooting
-
-- **`Program dot not found`**: Graphviz is not installed or not on `PATH`.
-- **`Connection refused` from the web app**: the Flask service is not running, or `python.api.base-url` is wrong.
-- **Out of memory / slow on huge files**: reduce the caps listed above.
-- **TensorFlow install fails**: use `tensorflow-cpu`.
-
-## Notes
-
-- `app.py` and `app_with_evaluation.py` share most of their code; the latter adds an evaluation export. Merging them into one module is a natural next refactor.
-- The sample dataset is intentionally tiny; use a real e-commerce event log for meaningful models.
+- **Troubleshooting:** `Program dot not found` means Graphviz is missing from `PATH`; `Connection refused` means the Flask service is down or `python.api.base-url` is wrong; out-of-memory on huge files means lowering the caps above.
+- `app.py` and `app_with_evaluation.py` share most code; merging them is the next refactor.
+- The bundled dataset is tiny. Use a real e-commerce event log for meaningful models.
